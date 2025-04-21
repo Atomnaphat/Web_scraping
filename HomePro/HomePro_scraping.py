@@ -1,73 +1,84 @@
-# homepro_scraper.py
-import requests
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
-import csv
-from datetime import datetime, timezone
-import re
-from db_homepro_config import store_scraped_data
+import time
+import pymongo
+from datetime import datetime
 
-def extract_link_from_onclick(onclick_text):
-    match = re.search(r"['\"](/product/[^'\"]+)['\"]", onclick_text)
-    return f"https://www.homepro.co.th{match.group(1)}" if match else "ไม่มีลิงก์"
+# --- ตั้งค่า Selenium ---
+options = Options()
+options.add_argument('--headless')
+options.add_argument('--disable-gpu')
+driver = webdriver.Chrome(options=options)
 
-web = 'https://www.homepro.co.th/?gad_source=1'
+# --- MongoDB ---
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+db = client["scraping_db"]
+collection = db["Homepro_logs"]
 
-try:
-    response = requests.get(web)
-    response.raise_for_status()
+# --- เริ่มที่หน้าหลักของสินค้าหมวดหมู่ ---
+url = "https://www.homepro.co.th/c/CON"  # ตัวอย่าง: ท่อ/อุปกรณ์ประปา
+driver.get(url)
+time.sleep(5)
 
-    soup = BeautifulSoup(response.content, 'html.parser')
-    products = soup.find_all('div', class_='product-plp-card')
+# --- โหลดสินค้าทั้งหมด ---
+SCROLL_PAUSE_TIME = 2
+last_height = driver.execute_script("return document.body.scrollHeight")
+while True:
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    time.sleep(SCROLL_PAUSE_TIME)
+    new_height = driver.execute_script("return document.body.scrollHeight")
+    if new_height == last_height:
+        break
+    last_height = new_height
 
-    print(f"🔍 พบสินค้าทั้งหมด: {len(products)} รายการ")
+soup = BeautifulSoup(driver.page_source, 'html.parser')
+products = soup.find_all('div', class_='product-card-mkp-s2')
 
-    data = []
-    incomplete_count = 0
-    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+data = []
 
-    for product in products:
-        try:
-            title = product.find('div', class_='item-title').text.strip()
-            price = product.find('div', class_='original-price').text.strip()
+print(f"พบสินค้าทั้งหมด: {len(products)} รายการ")
 
-            link_element = product.find('a', href=True)
-            if link_element and link_element.has_attr('data-url'):
-                link = f"https://www.homepro.co.th{link_element['data-url']}"
-            elif link_element and link_element.has_attr('onclick'):
-                link = extract_link_from_onclick(link_element['onclick'])
-            elif link_element:
-                link = link_element['href']
-                if not link.startswith('http'):
-                    link = f"https://www.homepro.co.th{link}"
-            else:
-                link = "ไม่มีลิงก์"
+for product in products:
+    try:
+        link_tag = product.find('a', href=True)
+        if not link_tag:
+            continue
+        product_url = link_tag['href']
+        if not product_url.startswith("http"):
+            product_url = f"https://www.homepro.co.th{product_url}"
 
-            data.append({
-                "title": title,
-                "price": price,
-                "link": link,
-                "scraped_at": now_utc  # ใช้ UTC สำหรับ TTL index
-            })
+        # 👉 เข้าไปดูรายละเอียดในแต่ละหน้า
+        driver.get(product_url)
+        time.sleep(2)
+        product_soup = BeautifulSoup(driver.page_source, 'html.parser')
 
-        except AttributeError:
-            incomplete_count += 1
-            print("⚠️ ข้อมูลสินค้าไม่สมบูรณ์ ข้ามรายการนี้")
+        # ดึงชื่อสินค้า
+        title_tag = product_soup.find('h1')
+        title = title_tag.get_text(strip=True) if title_tag else "ไม่มีชื่อ"
 
-    print(f"✅ บันทึกข้อมูลสำเร็จ: {len(data)} รายการ | ❌ ไม่สมบูรณ์: {incomplete_count}")
+        # ดึงราคา
+        price_tag = product_soup.find('div', class_='discount-price')
+        price = price_tag.get_text(strip=True) if price_tag else "ไม่มีราคา"
 
-    # ⏺ บันทึกลง MongoDB
-    if data:
-        store_scraped_data(data)
+        # ดึงหน่วยสินค้า เช่น /ม้วน (contain 30 เมตร)
+        unit_tag = product_soup.find('div', class_='span.product-unit')
+        unit = unit_tag.get_text(strip=True) if unit_tag else "ไม่มีหน่วย"
 
-    # ⏺ บันทึก CSV
-    csv_filename = "homepro_products.csv"
-    with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['Title', 'Price', 'Link', 'Scraped_At'])
-        for item in data:
-            writer.writerow([item["title"], item["price"], item["link"], item["scraped_at"]])
+        # print(f"✅ {title} | {price} | {product_url}")
 
-    print(f"📁 บันทึกไฟล์ CSV: {csv_filename}")
+        data.append({
+            "title": title,
+            "price": price,
+            "link": product_url,
+            "scraped_at": datetime.utcnow()
+        })
 
-except requests.exceptions.RequestException as e:
-    print(f"❌ เกิดข้อผิดพลาดในการดึงเว็บ: {e}")
+        collection.insert_one(data[-1])
+
+    except Exception as e:
+        print(f"⚠️ ดึงข้อมูลไม่สำเร็จ: {e}")
+
+driver.quit()
+print(f"\nบันทึกสำเร็จ: {len(data)} รายการ")
