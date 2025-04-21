@@ -118,6 +118,9 @@ try:
                 if price_elem:
                     price = price_elem.text.strip()
 
+            unit_elem = product.find('div', class_='text-xs leading-4 line-clamp-1 text-right')
+            unit = unit_elem.text.strip() if unit_elem else "ไม่พบหน่วย"
+
             # fallback
             if not price:
                 price = "ไม่มีราคา"
@@ -137,12 +140,13 @@ try:
                     if not link.startswith('http'):
                         link = f"https://www.thaiwatsadu.com{link}"
 
-            print(f"✅ {title} | {brand} | {price} | {link}")
+            print(f"✅ {title} | {brand} | {price} | {link} | {unit}")
 
             data.append({
                 "title": title,
                 "brand": brand,
                 "price": price,
+                "unit": unit,
                 "link": link,
                 "scraped_at": datetime.now()
             })
