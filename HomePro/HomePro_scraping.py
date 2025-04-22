@@ -14,8 +14,12 @@ driver = webdriver.Chrome(options=options)
 
 # --- MongoDB ---
 client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client["scraping_db"]
-collection = db["Homepro_logs"]
+db = client["Homepro_logs"]
+
+# สร้างชื่อ collection ตามวันที่และเวลา เช่น 22-04-2025_15-17
+now_str = datetime.now().strftime("%d-%m-%Y_%H-%M")  # ใช้ '-' แทน ':' ได้
+collection_name = f"HomePro_Data_{now_str}"
+collection = db[collection_name]
 
 # --- เริ่มที่หน้าหลักของสินค้าหมวดหมู่ ---
 url = "https://www.homepro.co.th/c/CON"  # ตัวอย่าง: ท่อ/อุปกรณ์ประปา
@@ -66,19 +70,22 @@ for product in products:
         unit_tag = product_soup.find('div', class_='span.product-unit')
         unit = unit_tag.get_text(strip=True) if unit_tag else "ไม่มีหน่วย"
 
-        # print(f"✅ {title} | {price} | {product_url}")
-
-        data.append({
+        # เก็บข้อมูลลง list และ MongoDB
+        product_data = {
             "title": title,
             "price": price,
+            "unit": unit,
             "link": product_url,
             "scraped_at": datetime.utcnow()
-        })
+        }
 
-        collection.insert_one(data[-1])
+        data.append(product_data)
+        collection.insert_one(product_data)
+
+        print(f"✅ {title}")
 
     except Exception as e:
         print(f"⚠️ ดึงข้อมูลไม่สำเร็จ: {e}")
 
 driver.quit()
-print(f"\nบันทึกสำเร็จ: {len(data)} รายการ")
+print(f"\nบันทึกสำเร็จ: {len(data)} รายการ ลงใน collection: {collection_name}")
