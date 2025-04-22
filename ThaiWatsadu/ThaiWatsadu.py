@@ -10,20 +10,23 @@ from datetime import datetime
 import re
 import random
 
-# ฟังก์ชันช่วยดึงลิงก์จาก onclick
 def extract_link_from_onclick(onclick_text):
     match = re.search(r"['\"](/product/[^'\"]+)['\"]", onclick_text)
     return f"https://www.thaiwatsadu.com{match.group(1)}" if match else "ไม่มีลิงก์"
 
-# URL ของหน้าเว็บ
+# 🟢 URL ของหน้าเว็บ
 web = 'https://www.thaiwatsadu.com/th/category/วัสดุก่อสร้าง-53'
 
-# เชื่อมต่อ MongoDB
-client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client["scraping_db"]
-collection = db["thaiwatsadu_logs"]
+# 🟢 สร้างชื่อ Collection ตามวันเวลา
+timestamp = datetime.now().strftime("%d-%m-%Y-%H-%M")
+collection_name = f"Thaiwatsadu_Data_{timestamp}"
 
-# ตั้งค่า Chrome options
+# 🟢 เชื่อมต่อ MongoDB
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+db = client["Thaiwatsadu_logs"]
+collection = db[collection_name]
+
+# 🟢 ตั้งค่า Chrome
 chrome_options = Options()
 chrome_options.add_argument('--headless=new')
 chrome_options.add_argument('--disable-gpu')
@@ -87,47 +90,30 @@ try:
 
     for product in products:
         try:
-            print("\nกำลังประมวลผลสินค้า:")
-            print(product.prettify()[:200])
-
-            # หาชื่อสินค้า
             title_elem = product.find('span', class_=lambda x: x and 'line-clamp' in x)
             title = title_elem.text.strip() if title_elem else "ไม่พบชื่อสินค้า"
 
-            # หาชื่อแบรนด์
             brand_elem = product.find('span', class_=lambda x: x and 'font-semibold' in x)
             brand = brand_elem.text.strip() if brand_elem else "ไม่พบแบรนด์"
 
-            # หาราคา
             price = None
-
-            # แบบที่ 1: ราคาขีดฆ่า (ลดราคา)
             price_elem = product.find('div', class_='text-grayDark text-sm leading-3 line-through')
             if price_elem:
                 price = price_elem.text.strip()
-
-            # แบบที่ 2: ราคาจากกล่องขาว
             if not price:
                 price_elem = product.find('div', class_='bg-white border rounded-md w-full col-span-1 mb-1 p-1.5 z-10 text-xs leading-3')
                 if price_elem:
                     price = price_elem.text.strip()
-
-            # แบบที่ 3: ราคาปกติ (ตัวแดง) — เช็ก class หลายแบบ
             if not price:
                 price_elem = product.find('div', class_=lambda x: x and 'text-redPrice' in x and 'font-price' in x)
                 if price_elem:
                     price = price_elem.text.strip()
+            if not price:
+                price = "ไม่มีราคา"
 
             unit_elem = product.find('div', class_='text-xs leading-4 line-clamp-1 text-right')
             unit = unit_elem.text.strip() if unit_elem else "ไม่พบหน่วย"
 
-            # fallback
-            if not price:
-                price = "ไม่มีราคา"
-
-
-
-            # ค้นหาลิงก์
             link = "ไม่มีลิงก์"
             link_elem = product.find('a', href=True)
             if link_elem:
@@ -155,17 +141,15 @@ try:
             incomplete_count += 1
             print(f"⚠️ เกิดข้อผิดพลาดในการประมวลผลสินค้า: {str(e)}")
 
-    print(f"ข้อมูลสมบูรณ์: {len(data)} รายการ")
-    print(f"ข้อมูลไม่สมบูรณ์: {incomplete_count} รายการ")
+    print(f"\n📦 ข้อมูลสมบูรณ์: {len(data)} รายการ")
+    print(f"❌ ข้อมูลไม่สมบูรณ์: {incomplete_count} รายการ")
 
     if data:
         collection.insert_many(data)
-        print("📌 บันทึกลง MongoDB สำเร็จ")
+        print(f"📌 บันทึกลง MongoDB: `{collection_name}` สำเร็จ")
 
 except Exception as e:
     print(f"❌ เกิดข้อผิดพลาด: {str(e)}")
-    print("Stack trace:", e.__traceback__)
-
 finally:
     if 'driver' in locals():
         driver.quit()
