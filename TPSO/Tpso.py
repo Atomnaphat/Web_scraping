@@ -75,14 +75,14 @@ def fetch_and_store_data():
             "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"
         ],
         "Period": {
-            "StartYear": str(current_year),
+            "StartYear": str(2561),
             "StartMonth": 1,
-            "EndYear": str(current_year),
-            "EndMonth": current_month
+            "EndYear": str(2561),
+            "EndMonth": 12
         },
         "Search": "",
         "TimeOption": True,
-        "Types": ["14"]
+        "Types": ["10"]
     }
 
     headers = {
