@@ -39,7 +39,6 @@ def store_price_data(data, collection_name=None):
 
         # ถ้าไม่ได้ระบุชื่อ collection ให้ใช้วันที่และเวลาเป็นชื่อ collection
         if not collection_name:
-            # ใช้วันที่และเวลา (ชั่วโมง-นาที)
             collection_name = thailand_time.strftime("TPSO_Data_%d-%m-%Y-%H-%M")
 
         collection = db[collection_name]
@@ -63,8 +62,8 @@ def store_price_data(data, collection_name=None):
 def fetch_and_store_data():
     url = "https://index-api.tpso.go.th/api/cmip/filter"
 
-    # Modify data to allow dynamic period for current year
-    current_year = datetime.now().year + 543  # Thai Buddhist calendar (current year + 543)
+    # เวลาปัจจุบัน
+    current_year = datetime.now().year + 543  # Thai Buddhist calendar
     current_month = datetime.now().month
 
     data = {
@@ -75,10 +74,10 @@ def fetch_and_store_data():
             "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"
         ],
         "Period": {
-            "StartYear": str(2561),
+            "StartYear": str(current_year),
             "StartMonth": 1,
-            "EndYear": str(2561),
-            "EndMonth": 12
+            "EndYear": str(current_year),
+            "EndMonth": current_month
         },
         "Search": "",
         "TimeOption": True,
@@ -92,7 +91,7 @@ def fetch_and_store_data():
 
     try:
         response = requests.post(url, json=data, headers=headers, timeout=30)
-        response.raise_for_status()  # Will raise an exception for HTTP error codes
+        response.raise_for_status()
     except requests.exceptions.Timeout:
         print("⏰ Request timed out, please try again later.")
         return
@@ -110,6 +109,8 @@ def fetch_and_store_data():
 
     thailand_time = datetime.now(timezone(timedelta(hours=7)))
     date_str = thailand_time.strftime('%d-%m-%Y-%H-%M')
+    types_str = "_".join(data["Types"])
+    collection_name = f"TPSO_Data_{date_str}_Types_{types_str}"
 
     documents = [{
         "item": item,
@@ -118,7 +119,7 @@ def fetch_and_store_data():
     } for item in response_data]
 
     # Try storing in MongoDB
-    if store_price_data(documents, collection_name=f"TPSO_Data_{date_str}"):
+    if store_price_data(documents, collection_name=collection_name):
         print(f"✅ Stored {len(documents)} documents in MongoDB")
         print(f"📌 Current Thailand time: {thailand_time.strftime('%Y-%m-%d %H:%M:%S')} TH")
     else:
